@@ -1,0 +1,16 @@
+boto3
+jsonnet
+overrides
+tqdm
+mkl
+intel-scipy
+intel-numpy
+pandas
+pyspellchecker
+dask
+nltk
+wordcloud
+matplotlib
+scikit-learn
+seaborn
+transformers
