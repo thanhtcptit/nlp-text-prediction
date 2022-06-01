@@ -102,7 +102,8 @@ def correct_data(df):
 
 
 def normalize_sentence(text, config):
-    text = text.lower()
+    if config.get("to_lower", False):
+        text = text.lower()
     for p in pattern_map:
         text = re.sub(p, pattern_map[p], text)
     text = remove_non_acsii(remove_emoji(remove_html(text)))
@@ -146,6 +147,8 @@ def preprocess(df, config, is_train=False):
         (lambda t: normalize_sentence(t, config)))).compute(scheduler='processes')
     if is_train:
         df = correct_data(df)
+    if config.get("add_metadata_to_text", False):
+        df["text"] = df[["text", "location", "keyword"]].apply(lambda x: f"{x[0]} {x[1]} {x[2]}", axis=1)
     return df
 
 

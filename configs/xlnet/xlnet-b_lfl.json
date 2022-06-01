@@ -2,21 +2,24 @@
     "seed": 442,
     "data": {
         "preprocess": {
+            "to_lower": true,
+            "add_metadata_to_text": true,
             "filter_special_chars": true,
             "remap_contraction": true,
             "remap_abbreviation": true
         },
         "path": {
-            "train": "data/processed/bert/train.csv",
-            "test": "data/processed/bert/test.csv",
-            "vocab": "data/processed/bert/vocab.txt"
+            "train": "data/processed/bert-tw_lfl/train.csv",
+            "test": "data/processed/bert-tw_lfl/test.csv",
+            "vocab": "data/processed/bert-tw_lfl/vocab.txt"
         }
     },
     "model": {
         "type": "bert",
-        "pretrained_bert_model": "bert-base-uncased",
+        "pretrained_bert_model": "xlnet-base-cased",
         "max_length": 80,
-        "num_branchs": 1
+        "num_dropout_sample": 1,
+        "freeze_bert": false
     },
     "trainer": {
         "num_epochs": 20,
@@ -25,8 +28,6 @@
         "optimizer": {
             "type": "adam",
             "learning_rate": 1e-5
-        },
-        "display_step": 100,
-        "save_step": 1000
+        }
     }
 }

@@ -10,7 +10,7 @@ from src.models.base import BaseModel
 import tensorflow.keras as keras
 
 from tqdm import tqdm
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 from tensorflow.keras import backend as K
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score
@@ -88,7 +88,7 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
 
     seed = config["seed"]
 
-    tokenizer = BertTokenizer.from_pretrained(model_config["pretrained_bert_model"], do_lower_case=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_config["pretrained_bert_model"])
 
     max_length = model_config["max_length"]
     train_df = pd.read_csv(data_config["path"]["train"], sep="\t")
@@ -121,37 +121,48 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
         filepath=os.path.join(weight_dir, "best_weights"), save_weights_only=True,
         monitor='val_binary_accuracy', mode='max', save_best_only=True)
 
-    model = BaseModel.from_params(model_config)
-    if recover:
-        model.graph.load_weights(weight_dir)
+    logging_callback = tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_dir, "logs.csv"),
+                                                    separator='\t', append=True)
 
-    model.graph.compile(
+    callbacks = [early_stopping_callback, model_checkpoint_callback, logging_callback]
+    if "callbacks" in trainer_config:
+        if "lr_scheduler" in trainer_config["callbacks"]:
+            callbacks.append(get_lr_scheduler(trainer_config["callbacks"]["lr_scheduler"]))
+
+    model = BaseModel.from_params(model_config).build_graph()
+    if recover:
+        model.load_weights(weight_dir)
+
+    model.compile(
         optimizer=get_optimizer(trainer_config["optimizer"]),
         loss=build_loss_fn(trainer_config),
         metrics=tf.keras.metrics.BinaryAccuracy())
 
-    model.graph.fit(
+    model.fit(
         train_dataset, validation_data=val_dataset, epochs=trainer_config["num_epochs"],
-        callbacks=[early_stopping_callback, model_checkpoint_callback])
+        callbacks=callbacks)
+
+    create_submission(checkpoint_dir, model)
 
 
 def eval(checkpoint_path, dataset_path):
     raise NotImplementedError()
 
 
-def create_submission(checkpoint_dir):
+def create_submission(checkpoint_dir, model=None):
     config = Params.from_file(os.path.join(checkpoint_dir, "config.json"))
     data_config = config["data"]
     model_config = config["model"]
 
-    tokenizer = BertTokenizer.from_pretrained(model_config["pretrained_bert_model"], do_lower_case=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_config["pretrained_bert_model"], do_lower_case=True)
 
     test_df = pd.read_csv(data_config["path"]["test"], sep="\t")
     test_input_ids, test_attention_masks = encode_aug(tokenizer, test_df, model_config["max_length"])
     ids = test_df.id.tolist()
 
-    model = BaseModel.from_params(model_config)
-    model.graph.load_weights(os.path.join(checkpoint_dir, "checkpoints/best_weights"))
+    if not model:
+        model = BaseModel.from_params(model_config).build_graph()
+        model.load_weights(os.path.join(checkpoint_dir, "checkpoints/best_weights"))
 
     submission_file = os.path.join(checkpoint_dir, "submission.csv")
     predictions = {"id": [], "target": []}
@@ -165,7 +176,7 @@ def create_submission(checkpoint_dir):
         attn_mask_batch.append(test_attention_masks[i])
         if len(input_ids_batch) == batch_size:
             input_ids_batch, attn_mask_batch = np.array(input_ids_batch), np.array(attn_mask_batch)
-            prob = model.graph([input_ids_batch, attn_mask_batch]).numpy()
+            prob = model([input_ids_batch, attn_mask_batch]).numpy()
             predictions["target"].extend([round(prob[j][0]) for j in range(batch_size)])
             
             input_ids_batch = []
@@ -174,7 +185,7 @@ def create_submission(checkpoint_dir):
     remain = len(input_ids_batch)
     if remain:
         input_ids_batch, attn_mask_batch = np.array(input_ids_batch), np.array(attn_mask_batch)
-        prob = model.graph([input_ids_batch, attn_mask_batch]).numpy()
+        prob = model([input_ids_batch, attn_mask_batch]).numpy()
         predictions["target"].extend([round(prob[j][0]) for j in range(remain)])
 
     df = pd.DataFrame.from_dict(predictions)

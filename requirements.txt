@@ -6,6 +6,7 @@ mkl
 intel-scipy
 intel-numpy
 pandas
+emoji
 pyspellchecker
 dask
 nltk

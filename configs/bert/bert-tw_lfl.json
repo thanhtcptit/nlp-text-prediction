@@ -1,0 +1,33 @@
+{
+    "seed": 442,
+    "data": {
+        "preprocess": {
+            "to_lower": true,
+            "add_metadata_to_text": true,
+            "filter_special_chars": true,
+            "remap_contraction": true,
+            "remap_abbreviation": true
+        },
+        "path": {
+            "train": "data/processed/bert-tw_lfl/train.csv",
+            "test": "data/processed/bert-tw_lfl/test.csv",
+            "vocab": "data/processed/bert-tw_lfl/vocab.txt"
+        }
+    },
+    "model": {
+        "type": "bert",
+        "pretrained_bert_model": "vinai/bertweet-base",
+        "max_length": 80,
+        "num_dropout_sample": 1,
+        "freeze_bert": false
+    },
+    "trainer": {
+        "num_epochs": 20,
+        "batch_size": 64,
+        "loss_fn": "focal",
+        "optimizer": {
+            "type": "adam",
+            "learning_rate": 1e-5
+        }
+    }
+}
