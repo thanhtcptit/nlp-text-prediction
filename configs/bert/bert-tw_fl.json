@@ -9,9 +9,9 @@
             "remap_abbreviation": true
         },
         "path": {
-            "train": "data/processed/bert-tw_lfl/train.csv",
-            "test": "data/processed/bert-tw_lfl/test.csv",
-            "vocab": "data/processed/bert-tw_lfl/vocab.txt"
+            "train": "data/processed/lowered_filtered_remaped_added-metadata/train.csv",
+            "test":  "data/processed/lowered_filtered_remaped_added-metadata/test.csv",
+            "vocab": "data/processed/lowered_filtered_remaped_added-metadata/vocab.txt"
         }
     },
     "model": {

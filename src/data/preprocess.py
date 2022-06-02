@@ -4,6 +4,7 @@ import string
 import collections
 
 import nltk
+import emoji
 import numpy as np
 import pandas as pd
 
@@ -30,13 +31,17 @@ punct_map = {
 
 pattern_map = {
     (r"https?:\/\/\S+|ftp:\/\/\S+|www\.\S+"
-     r"([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])"): "url",
+     r"([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])"): "",
     r"([\d]+:[\d]+)": "time",
     r"([\d]+\/[\d]+(/[\d]+)?)": "date",
     r"[0-9]": "",
     r"\s+": " ",
     "&gt": " ", "&lt": " ", "&amp": " "
 }
+
+def replace_emoji(text):
+    return emoji.demojize(text, delimiters=("", ""))
+
 
 def remove_emoji(text):
     emoji_pattern = re.compile(
@@ -69,14 +74,11 @@ def work_tokenize(text):
     return nltk.word_tokenize(text)
 
 
-def stem_words(text):
-    stemmer = PorterStemmer()
+def stem_words(stemmer, text):
     return " ".join([stemmer.stem(word) for word in work_tokenize(text)])
 
-def lemma_words(text):
-    lemmatizer = WordNetLemmatizer()
-    wordnet_map = {"N": wordnet.NOUN, "V": wordnet.VERB, "J": wordnet.ADJ,
-                   "R": wordnet.ADV}
+def lemma_words(lemmatizer, text):
+    wordnet_map = {"N": wordnet.NOUN, "V": wordnet.VERB, "J": wordnet.ADJ, "R": wordnet.ADV}
     pos_tagged_text = nltk.pos_tag(work_tokenize(text))
     return " ".join([lemmatizer.lemmatize(word, wordnet_map.get(pos[0], wordnet.NOUN))
                      for word, pos in pos_tagged_text])
@@ -106,7 +108,17 @@ def normalize_sentence(text, config):
         text = text.lower()
     for p in pattern_map:
         text = re.sub(p, pattern_map[p], text)
-    text = remove_non_acsii(remove_emoji(remove_html(text)))
+    text = remove_non_acsii(remove_emoji(replace_emoji(remove_html(text))))
+
+    for p in punct_map:
+        text = text.replace(p, punct_map[p])
+    for p in PUNCTUATION:
+        if config.get("filter_special_chars", False):
+            text = text.replace(p, " ")
+        else:
+            text = text.replace(p, f" {p} ")
+
+    text = re.sub("\s+", " ", text).strip()
 
     if config.get("remap_contraction", False):
         contraction_map = load_json("resources/contraction_map.json")
@@ -118,20 +130,20 @@ def normalize_sentence(text, config):
         words = text.split()
         text = " ".join(abbreviation_map.get(w, w) for w in words)
 
-    for p in punct_map:
-        text = text.replace(p, punct_map[p])
-    for p in PUNCTUATION:
-        if config.get("filter_special_chars", False):
-            text = text.replace(p, " ")
-        else:
-            text = text.replace(p, f" {p} ")
-
     if config.get("spell_check", False):
         from spellchecker import SpellChecker
 
         spell_checker = SpellChecker(distance=1)
         text = spell_check(spell_checker, text)
-    text = re.sub("\s+", " ", text).strip()
+
+    if config.get("stem", False):
+        stemmer = PorterStemmer()
+        text = stem_words(stemmer, text)
+
+    if config.get("lemma", False):
+        lemmatizer = WordNetLemmatizer()
+        text = lemma_words(lemmatizer, text)
+
     return text
 
 
@@ -148,7 +160,8 @@ def preprocess(df, config, is_train=False):
     if is_train:
         df = correct_data(df)
     if config.get("add_metadata_to_text", False):
-        df["text"] = df[["text", "location", "keyword"]].apply(lambda x: f"{x[0]} {x[1]} {x[2]}", axis=1)
+        df["text"] = df[["text", "location", "keyword"]].apply(
+            lambda x: re.sub("\s+", " ", f"{x[0]} {x[1]} {x[2]}"), axis=1)
     return df
 
 
@@ -177,15 +190,15 @@ def main(config_path, force=False):
     train_data = preprocess(train_data, preprocess_config, is_train=True)
     test_data  = preprocess(test_data, preprocess_config)
 
-    data_dir = os.path.join(f"data/processed/{config_name}")
+    data_dir = os.path.split(config["data"]["path"]["train"])[0]
     if os.path.exists(data_dir) and not force:
         raise ValueError(data_dir + " already existed")
     os.makedirs(data_dir, exist_ok=True)
-    train_data.to_csv(f"{data_dir}/train.csv", sep="\t", index=False)
-    test_data.to_csv(f"{data_dir}/test.csv", sep="\t", index=False)
+    train_data.to_csv(config["data"]["path"]["train"], sep="\t", index=False)
+    test_data.to_csv(config["data"]["path"]["test"], sep="\t", index=False)
 
     all_sentences = pd.concat([train_data["text"], test_data["text"]])
     vocab = build_vocab(all_sentences)
-    save_dict(f"{data_dir}/vocab.txt", vocab, sep="\t")
-    
-    save_json(os.path.join(data_dir, "config.json"), preprocess_config)
+    save_dict(config["data"]["path"]["vocab"], vocab, sep="\t")
+
+    save_json(os.path.join(data_dir, "config.json"), config["data"])

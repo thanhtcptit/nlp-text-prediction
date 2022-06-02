@@ -1,0 +1,34 @@
+{
+    "seed": 442,
+    "data": {
+        "preprocess": {
+            "to_lower": true,
+            "add_metadata_to_text": true,
+            "filter_special_chars": false,
+            "remap_contraction": true,
+            "remap_abbreviation": true
+        },
+        "path": {
+            "train": "data/processed/lowered_filtered_remaped_added-metadata/train.csv",
+            "test":  "data/processed/lowered_filtered_remaped_added-metadata/test.csv",
+            "vocab": "data/processed/lowered_filtered_remaped_added-metadata/vocab.txt"
+        }
+    },
+    "model": {
+        "type": "bert",
+        "pretrained_bert_model": "bert-base-uncased",
+        "max_length": 80,
+        "hidden_units": 64,
+        "num_dropout_sample": 5,
+        "freeze_bert": false
+    },
+    "trainer": {
+        "num_epochs": 20,
+        "batch_size": 64,
+        "loss_fn": "focal",
+        "optimizer": {
+            "type": "adam",
+            "learning_rate": 1e-5
+        }
+    }
+}
