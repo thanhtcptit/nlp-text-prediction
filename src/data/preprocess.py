@@ -12,11 +12,9 @@ from tqdm import tqdm
 from nltk.corpus import stopwords, wordnet
 from nltk.stem import WordNetLemmatizer 
 from nltk.stem.porter import PorterStemmer
+from sklearn.model_selection import train_test_split
 
 from src.utils.file_utils import load_json, save_json, save_dict
-
-import warnings
-warnings.filterwarnings("ignore")
 
 
 PUNCTUATION = "/-'?!.,#$%\'()*+-/:;<=>@[\\]^_`{|}~" + '""“”’' + \
@@ -182,7 +180,6 @@ def build_vocab(texts, threshold=3):
 def main(config_path, force=False):
     config = load_json(config_path)
     preprocess_config = config["data"]["preprocess"]
-    config_name = os.path.splitext(os.path.basename(config_path))[0]
 
     train_data = pd.read_csv("data/raw/train.csv").fillna("")
     test_data  = pd.read_csv("data/raw/test.csv").fillna("")
@@ -194,7 +191,16 @@ def main(config_path, force=False):
     if os.path.exists(data_dir) and not force:
         raise ValueError(data_dir + " already existed")
     os.makedirs(data_dir, exist_ok=True)
+
+    idxs = train_data.id.tolist()
+    labels = train_data.target.tolist()
+    train_ids, val_ids, _, _ = train_test_split(
+        idxs, labels, train_size=0.8, random_state=config["seed"], stratify=labels)
+    val_data = train_data[train_data.id.isin(val_ids)]
+    train_data = train_data[train_data.id.isin(train_ids)]
+
     train_data.to_csv(config["data"]["path"]["train"], sep="\t", index=False)
+    val_data.to_csv(config["data"]["path"]["val"], sep="\t", index=False)
     test_data.to_csv(config["data"]["path"]["test"], sep="\t", index=False)
 
     all_sentences = pd.concat([train_data["text"], test_data["text"]])

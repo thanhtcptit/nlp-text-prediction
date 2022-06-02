@@ -10,6 +10,7 @@
         },
         "path": {
             "train": "data/processed/lowered_filtered_remaped_added-metadata/train.csv",
+            "val":   "data/processed/lowered_filtered_remaped_added-metadata/val.csv",
             "test":  "data/processed/lowered_filtered_remaped_added-metadata/test.csv",
             "vocab": "data/processed/lowered_filtered_remaped_added-metadata/vocab.txt"
         }
@@ -17,7 +18,7 @@
     "model": {
         "type": "bert",
         "pretrained_bert_model": "bert-base-uncased",
-        "max_length": 80,
+        "max_length": 50,
         "hidden_units": 64,
         "num_dropout_sample": 5,
         "freeze_bert": false

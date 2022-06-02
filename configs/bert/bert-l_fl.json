@@ -4,7 +4,7 @@
         "preprocess": {
             "to_lower": true,
             "add_metadata_to_text": true,
-            "filter_special_chars": true,
+            "filter_special_chars": false,
             "remap_contraction": true,
             "remap_abbreviation": true
         },
@@ -17,14 +17,15 @@
     },
     "model": {
         "type": "bert",
-        "pretrained_bert_model": "vinai/bertweet-base",
+        "pretrained_bert_model": "bert-large-uncased",
         "max_length": 50,
+        "hidden_units": 64,
         "num_dropout_sample": 5,
         "freeze_bert": false
     },
     "trainer": {
         "num_epochs": 20,
-        "batch_size": 64,
+        "batch_size": 32,
         "loss_fn": "focal",
         "optimizer": {
             "type": "adam",

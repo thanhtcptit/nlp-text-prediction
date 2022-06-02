@@ -136,17 +136,18 @@ class Evaluate(Subcommand):
                                           help=description)
 
         subparser.add_argument(
-            "checkpoint_path", type=str,
+            "checkpoint_dir", type=str,
             help=("path to the model checkpoint"))
         subparser.add_argument(
-            "dataset_path", type=str,
+            "-d", "--dataset_path", type=str,
             help="path to evaluate dataset")
         subparser.set_defaults(func=evaluate_model)
         return subparser
 
 
 def evaluate_model(args):
-    raise NotImplementedError()
+    from src.train import eval as func
+    return func(args.checkpoint_dir, args.dataset_path)
 
 
 class ExportModel(Subcommand):
@@ -156,7 +157,7 @@ class ExportModel(Subcommand):
                                       help=description)
 
         subparser.add_argument(
-            "checkpoint_path", type=str, help="path to model checkpoint")
+            "checkpoint_dir", type=str, help="path to model checkpoint")
         subparser.add_argument(
             "-o", "--output_dir", type=str, help="path to output dir")
         subparser.set_defaults(func=export_model)
@@ -176,6 +177,8 @@ class CreateSubmission(Subcommand):
 
         subparser.add_argument(
             "checkpoint_dir", type=str, help="path to model checkpoint")
+        subparser.add_argument(
+            "-t", "--threshold", type=float, default=0.5, help="set threshold")
         subparser.set_defaults(func=create_submission)
 
         return subparser
@@ -183,7 +186,7 @@ class CreateSubmission(Subcommand):
 
 def create_submission(args):
     from src.train import create_submission as func
-    return func(args.checkpoint_dir)
+    return func(args.checkpoint_dir, threshold=args.threshold)
 
 
 def run():
