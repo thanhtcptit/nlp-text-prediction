@@ -16,6 +16,9 @@ from sklearn.model_selection import train_test_split
 
 from src.utils.file_utils import load_json, save_json, save_dict
 
+import warnings
+warnings.filterwarnings("ignore")
+
 
 PUNCTUATION = "/-'?!.,#$%\'()*+-/:;<=>@[\\]^_`{|}~" + '""“”’' + \
     '∞θ÷α•à−β∅³π‘₹´°£€\×™√²—–&'

@@ -3,10 +3,10 @@
     "data": {
         "preprocess": {
             "to_lower": true,
+            "add_metadata_to_text": true,
             "filter_special_chars": true,
             "remap_contraction": true,
-            "remap_abbreviation": true,
-            "add_metadata_to_text": true
+            "remap_abbreviation": true
         },
         "path": {
             "train": "data/processed/lowered_filtered_remaped_added-metadata/train.csv",
@@ -17,19 +17,18 @@
     },
     "model": {
         "type": "bert",
-        "pretrained_bert_model": "albert-base-v2",
+        "pretrained_bert_model": "vinai/bertweet-large",
         "max_length": 50,
-        "hidden_units": 64,
         "num_dropout_sample": 5,
         "freeze_bert": false
     },
     "trainer": {
         "num_epochs": 20,
-        "batch_size": 64,
+        "batch_size": 32,
         "loss_fn": "focal",
         "optimizer": {
             "type": "adam",
-            "learning_rate": 3e-5
+            "learning_rate": 1e-5
         }
     }
 }

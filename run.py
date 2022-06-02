@@ -178,7 +178,7 @@ class CreateSubmission(Subcommand):
         subparser.add_argument(
             "checkpoint_dir", type=str, help="path to model checkpoint")
         subparser.add_argument(
-            "-t", "--threshold", type=float, default=0.5, help="set threshold")
+            "-t", "--threshold", type=float, default=None, help="set threshold")
         subparser.set_defaults(func=create_submission)
 
         return subparser

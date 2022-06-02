@@ -63,12 +63,6 @@ def build_loss_fn(config):
     raise ValueError(f"Can't identify loss_fn {config['loss_fn']}")
 
 
-def metric(y_true, y_pred):
-    acc = accuracy_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred, average='macro')
-    return acc, f1
-
-
 def create_tf_dataset(df, tokenizer, max_length, batch_size, is_train=False):
     input_ids, attention_masks = encode_aug(tokenizer, df, max_length)
     labels = df.target.tolist()
@@ -109,12 +103,12 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
                                     trainer_config["batch_size"])
 
     early_stopping_callback = keras.callbacks.EarlyStopping(
-        monitor='val_precision_at_recall', min_delta=0.001, patience=7, verbose=1, mode='max',
+        monitor='val_accuracy', min_delta=0.001, patience=7, verbose=1, mode='max',
         baseline=None, restore_best_weights=True)
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(weight_dir, "best_weights"), save_weights_only=True,
-        monitor='val_precision_at_recall', mode='max', save_best_only=True)
+        monitor='val_accuracy', mode='max', save_best_only=True)
 
     logging_callback = tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_dir, "logs.csv"),
                                                     separator='\t', append=True)
@@ -138,7 +132,7 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
         train_dataset, validation_data=val_dataset, epochs=trainer_config["num_epochs"],
         callbacks=callbacks)
 
-    create_submission(checkpoint_dir, model)
+    create_submission(checkpoint_dir, model, threshold=None)
 
     metrics = model.evaluate(val_dataset)
     print(metrics)
@@ -175,39 +169,57 @@ def create_submission(checkpoint_dir, model=None, threshold=0.5):
     model_config = config["model"]
 
     tokenizer = AutoTokenizer.from_pretrained(model_config["pretrained_bert_model"], do_lower_case=True)
-
-    test_df = pd.read_csv(data_config["path"]["test"], sep="\t")
-    test_input_ids, test_attention_masks = encode_aug(tokenizer, test_df, model_config["max_length"])
-    ids = test_df.id.tolist()
-
+    max_length = model_config["max_length"]
     if not model:
         model = BaseModel.from_params(model_config).build_graph()
         model.load_weights(os.path.join(checkpoint_dir, "checkpoints/best_weights"))
 
-    submission_file = os.path.join(checkpoint_dir, "submission.csv")
-    predictions = {"id": [], "target": []}
+    def predict(df):
+        input_ids, attention_masks = encode_aug(tokenizer, df, max_length)
+        probs, input_ids_batch, attn_mask_batch = [], [], []
+        batch_size = 256
 
-    input_ids_batch = []
-    attn_mask_batch = []
-    batch_size = 256
-    for i in tqdm(range(len(ids))):
-        predictions["id"].append(ids[i])
-        input_ids_batch.append(test_input_ids[i])
-        attn_mask_batch.append(test_attention_masks[i])
-        if len(input_ids_batch) == batch_size:
+        for i in tqdm(range(len(input_ids))):
+            input_ids_batch.append(input_ids[i])
+            attn_mask_batch.append(attention_masks[i])
+            if len(input_ids_batch) == batch_size:
+                input_ids_batch, attn_mask_batch = np.array(input_ids_batch), np.array(attn_mask_batch)
+                prob = model([input_ids_batch, attn_mask_batch]).numpy()
+                probs.extend([prob[j][0] for j in range(batch_size)])
+
+                input_ids_batch = []
+                attn_mask_batch = []
+
+        remain = len(input_ids_batch)
+        if remain:
             input_ids_batch, attn_mask_batch = np.array(input_ids_batch), np.array(attn_mask_batch)
             prob = model([input_ids_batch, attn_mask_batch]).numpy()
-            predictions["target"].extend([1 if prob[j][0] >= threshold else 0 for j in range(batch_size)])
-            
-            input_ids_batch = []
-            attn_mask_batch = []
+            probs.extend([prob[j][0] for j in range(remain)])
+        return probs
 
-    remain = len(input_ids_batch)
-    if remain:
-        input_ids_batch, attn_mask_batch = np.array(input_ids_batch), np.array(attn_mask_batch)
-        prob = model([input_ids_batch, attn_mask_batch]).numpy()
-        predictions["target"].extend([round(prob[j][0]) for j in range(remain)])
 
+    if threshold is None:
+        thresholds = np.arange(0.2, 0.9, step=0.05)
+
+        val_df = pd.read_csv(data_config["path"]["val"], sep="\t")
+        y_true = val_df.target.tolist()
+        probs = predict(val_df)
+
+        best_val = 0
+        for t in thresholds:
+            y_pred = [1 if v >= t else 0 for v in probs]
+            f1 = f1_score(y_true, y_pred, average='macro')
+            if f1 > best_val:
+                best_val = f1
+                threshold = t
+        print(f"Best f1: {best_val} at threshold: {threshold}")
+
+    test_df = pd.read_csv(data_config["path"]["test"], sep="\t")
+    test_ids = test_df.id.tolist()
+    probs = predict(test_df)
+
+    submission_file = os.path.join(checkpoint_dir, "submission.csv")
+    predictions = {"id": test_ids, "target": [1 if v >= threshold else 0 for v in probs]}
     df = pd.DataFrame.from_dict(predictions)
     df.to_csv(submission_file, index=False)
 
