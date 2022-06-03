@@ -12,7 +12,7 @@ import tensorflow.keras as keras
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from tensorflow.keras import backend as K
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import f1_score
 
 from src.utils.train_utils import *
 from src.utils import Params, save_json, save_txt, load_json, Logger
@@ -103,12 +103,12 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
                                     trainer_config["batch_size"])
 
     early_stopping_callback = keras.callbacks.EarlyStopping(
-        monitor='val_accuracy', min_delta=0.001, patience=7, verbose=1, mode='max',
+        monitor='val_binary_accuracy', min_delta=0.001, patience=5, verbose=1, mode='max',
         baseline=None, restore_best_weights=True)
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(weight_dir, "best_weights"), save_weights_only=True,
-        monitor='val_accuracy', mode='max', save_best_only=True)
+        monitor='val_binary_accuracy', mode='max', save_best_only=True)
 
     logging_callback = tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_dir, "logs.csv"),
                                                     separator='\t', append=True)
@@ -123,7 +123,8 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
         model.load_weights(weight_dir)
 
     model.compile(
-        optimizer=get_optimizer(trainer_config["optimizer"]),
+        optimizer=get_optimizer(trainer_config["optimizer"])(
+            learning_rate=trainer_config["optimizer"]["learning_rate"]),
         loss=build_loss_fn(trainer_config),
         metrics=[tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(),
                  tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
@@ -132,10 +133,10 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
         train_dataset, validation_data=val_dataset, epochs=trainer_config["num_epochs"],
         callbacks=callbacks)
 
-    create_submission(checkpoint_dir, model, threshold=None)
-
     metrics = model.evaluate(val_dataset)
     print(metrics)
+
+    create_submission(checkpoint_dir, model, threshold=None)
     return metrics
 
 
@@ -224,64 +225,64 @@ def create_submission(checkpoint_dir, model=None, threshold=0.5):
     df.to_csv(submission_file, index=False)
 
 
-def hyperparams_search(config_file, force=False):
-    config_file_name = os.path.splitext(os.path.split(config_file)[1])[0]
-    config = Params.from_file(config_file)
-    hyp = config["hyp"]
+def hyperparams_search(config_file, num_trials=50, force=False):
+    import optuna
+    from optuna.integration import TFKerasPruningCallback
 
-    num_hyp = len(hyp)
-    inds = [0] * num_hyp
-    keys_list = []
-    values_list = []
-    len_search = []
-    for k, v in hyp.items():
-        keys_list.append(k)
-        values_list.append(v)
-        len_search.append(len(v))
+    def objective(trial):
+        tf.keras.backend.clear_session()
 
-    best_metric = 0
-    best_model_dir = ""
-    saved_model_list = []
-    i = 0
-    name = []
-    while True:
-        if inds[i] == len_search[i]:
-            if i == 0:
-                break
-            inds[i] = 0
-            i -= 1
-            name.pop()
-            continue
+        config = Params.from_file(config_file)
+        data_config = config["data"]
+        model_config = config["model"]
+        trainer_config = config["trainer"]
 
-        if i == 0:
-            name = []
-        main_key, sub_key = keys_list[i].split(".")
-        values = values_list[i][inds[i]]
-        config[main_key][sub_key] = values
-        inds[i] += 1
-        name.append(sub_key + "-" + str(values))
-        if i == num_hyp - 1:
-            print(config.__dict__["params"])
-            config_path = os.path.join("/tmp", config_file_name + '_' + '_'.join(name) + ".json")
-            name.pop()
-            save_json(config_path, config.__dict__["params"])
+        tokenizer = AutoTokenizer.from_pretrained(model_config["pretrained_bert_model"])
 
-            model_dir = train()
-            saved_model_list.append(model_dir)
+        train_df = pd.read_csv(data_config["path"]["train"], sep="\t")
+        val_df = pd.read_csv(data_config["path"]["val"], sep="\t")
 
-            metric = eval()
-            save_txt(os.path.join(model_dir, "res.txt"), [metric])
-            if metric > best_metric:
-                best_metric = metric
-                best_model_dir = model_dir
-        else:
-            i += 1
+        train_dataset = create_tf_dataset(train_df, tokenizer, model_config["max_length"],
+                                        trainer_config["batch_size"], is_train=True)
+        val_dataset = create_tf_dataset(val_df, tokenizer, model_config["max_length"],
+                                        trainer_config["batch_size"])
 
-    print("============================================")
-    print("Best results: ", best_metric)
-    print(best_model_dir + "\n\n")
+        monitor_val = "val_binary_accuracy"
+        early_stopping_callback = keras.callbacks.EarlyStopping(
+            monitor=monitor_val, min_delta=0.001, patience=5, verbose=1, mode='max',
+            baseline=None, restore_best_weights=True)
 
-    for d in saved_model_list:
-        if d == best_model_dir:
-            continue
-        shutil.rmtree(d)
+        callbacks = [early_stopping_callback, TFKerasPruningCallback(trial, monitor_val)]
+        if "callbacks" in trainer_config:
+            if "lr_scheduler" in trainer_config["callbacks"]:
+                callbacks.append(get_lr_scheduler(trainer_config["callbacks"]["lr_scheduler"]))
+
+        model = BaseModel.from_params(model_config).build_graph_for_hp(trial)
+        lr = trial.suggest_float("lr", trainer_config["optimizer"]["learning_rate"][0],
+                                 trainer_config["optimizer"]["learning_rate"][1], log=True)
+        model.compile(
+            optimizer=get_optimizer(trainer_config["optimizer"])(learning_rate=lr),
+            loss=build_loss_fn(trainer_config),
+            metrics=[tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(),
+                     tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
+        model.summary()
+
+        model.fit(
+            train_dataset, validation_data=val_dataset, epochs=trainer_config["num_epochs"],
+            callbacks=callbacks)
+
+        metrics = model.evaluate(val_dataset)
+        return metrics[1]
+
+    study = optuna.create_study(study_name="bert", direction="maximize")
+    study.optimize(objective, n_trials=num_trials, gc_after_trial=True,
+                   catch=(tf.errors.InvalidArgumentError,))
+    print("Number of finished trials: ", len(study.trials))
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print(" - Value: ", trial.value)
+    print(" - Params: ")
+    for key, value in trial.params.items():
+        print("  - {}: {}".format(key, value))

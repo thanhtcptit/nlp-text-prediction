@@ -118,6 +118,9 @@ class HyperparamsSearch(Subcommand):
             "config_path", type=str,
             help="path to the json config file")
         subparser.add_argument(
+            "-n", "--num_trials", type=int, default=100,
+            help="num trials to run")
+        subparser.add_argument(
             "-f", "--force", action="store_true",
             help="force override serialization dir")
 
@@ -126,7 +129,8 @@ class HyperparamsSearch(Subcommand):
 
 
 def hyperparams_search(args):
-    raise NotImplementedError()
+    from src.train import hyperparams_search as func
+    return func(args.config_path, args.num_trials, args.force)
 
 
 class Evaluate(Subcommand):

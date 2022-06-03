@@ -19,8 +19,11 @@
         "type": "bert",
         "pretrained_bert_model": "bert-base-uncased",
         "max_length": 50,
+        "depth": 2,
         "hidden_units": 64,
-        "num_dropout_sample": 5,
+        "act": "relu",
+        "drop_out": 0.3,
+        "num_dropout_sample": 1,
         "freeze_bert": false
     },
     "trainer": {

@@ -35,5 +35,5 @@ def get_lr_scheduler(config):
 
 def get_optimizer(config):
     if config["type"] == "adam":
-        return keras.optimizers.Adam(learning_rate=config["learning_rate"])
+        return keras.optimizers.Adam
     raise ValueError(config)

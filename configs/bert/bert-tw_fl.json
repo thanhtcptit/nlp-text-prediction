@@ -19,7 +19,11 @@
         "type": "bert",
         "pretrained_bert_model": "vinai/bertweet-base",
         "max_length": 50,
-        "num_dropout_sample": 5,
+        "depth": 2,
+        "hidden_units": 64,
+        "act": "relu",
+        "drop_out": 0.3,
+        "num_dropout_sample": 1,
         "freeze_bert": false
     },
     "trainer": {
