@@ -6,16 +6,15 @@ import collections
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from src.models.base import BaseModel
 import tensorflow.keras as keras
 
 from tqdm import tqdm
 from transformers import AutoTokenizer
-from tensorflow.keras import backend as K
 from sklearn.metrics import f1_score
 
 from src.utils.train_utils import *
-from src.utils import Params, save_json, save_txt, load_json, Logger
+from src.models.base import BaseModel
+from src.utils import Params, save_json, save_txt, load_json
 
 tf.get_logger().setLevel('INFO')
 
@@ -40,27 +39,6 @@ def encode_aug(tokenizer, data, max_length):
             input_ids.append(encoded["input_ids"])
             attention_masks.append(encoded["attention_mask"])
     return input_ids, attention_masks
-
-
-def focal_loss(gamma=2.0, alpha=0.2):
-    def focal_loss_fn(y_true, y_pred):
-        pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
-        pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
-        return -K.mean(alpha * K.pow(1. - pt_1, gamma) * K.log(pt_1)) - K.mean((1 - alpha) \
-            * K.pow(pt_0, gamma) * K.log(1. - pt_0))
-    return focal_loss_fn
-
-
-def build_loss_fn(config):
-    if config["loss_fn"] == "bce":
-        return keras.losses.BinaryCrossentropy(label_smoothing=config.get("label_smoothing", 0))
-    if config["loss_fn"] == "cce":
-        return keras.losses.CategoricalCrossentropy(label_smoothing=config.get("label_smoothing", 0))
-    if config["loss_fn"] == "mse":
-        return keras.losses.MeanSquaredError()
-    if config["loss_fn"] == "focal":
-        return focal_loss(config.get("gamma", 2.0), config.get("alpha", 0.2))
-    raise ValueError(f"Can't identify loss_fn {config['loss_fn']}")
 
 
 def create_tf_dataset(df, tokenizer, max_length, batch_size, is_train=False):
@@ -102,30 +80,24 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
     val_dataset = create_tf_dataset(val_df, tokenizer, model_config["max_length"],
                                     trainer_config["batch_size"])
 
-    early_stopping_callback = keras.callbacks.EarlyStopping(
-        monitor='val_binary_accuracy', min_delta=0.001, patience=5, verbose=1, mode='max',
-        baseline=None, restore_best_weights=True)
-
-    model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-        filepath=os.path.join(weight_dir, "best_weights"), save_weights_only=True,
-        monitor='val_binary_accuracy', mode='max', save_best_only=True)
-
-    logging_callback = tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_dir, "logs.csv"),
-                                                    separator='\t', append=True)
-
-    callbacks = [early_stopping_callback, model_checkpoint_callback, logging_callback]
+    callbacks = []
     if "callbacks" in trainer_config:
-        if "lr_scheduler" in trainer_config["callbacks"]:
-            callbacks.append(get_lr_scheduler(trainer_config["callbacks"]["lr_scheduler"]))
+        for callback in trainer_config["callbacks"]:
+            if "params" not in callback:
+                callback["params"] = {}
+            if callback["type"] == "model_checkpoint":
+                callback["params"]["filepath"] = os.path.join(weight_dir, "best.ckpt")
+            elif callback["type"] == "logging":
+                callback["params"]["filename"] = os.path.join(checkpoint_dir, "log.csv")
+            callbacks.append(get_callback_fn(callback["type"])(**callback["params"]))
 
     model = BaseModel.from_params(model_config).build_graph()
     if recover:
         model.load_weights(weight_dir)
 
     model.compile(
-        optimizer=get_optimizer(trainer_config["optimizer"])(
-            learning_rate=trainer_config["optimizer"]["learning_rate"]),
-        loss=build_loss_fn(trainer_config),
+        optimizer=get_optimizer(trainer_config["optimizer"]["type"])(**trainer_config["optimizer"].get("params", {})),
+        loss=get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {})),
         metrics=[tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(),
                  tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
 
@@ -155,10 +127,10 @@ def eval(checkpoint_dir, dataset_path):
                                      trainer_config["batch_size"])
 
     model = BaseModel.from_params(model_config).build_graph()
-    model.load_weights(os.path.join(checkpoint_dir, "checkpoints/best_weights"))
+    model.load_weights(os.path.join(checkpoint_dir, "checkpoints/best.ckpt"))
     model.compile(
         metrics=[tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(),
-                    tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
+                 tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
     metrics = model.evaluate(test_dataset)
     print(metrics)
     return metrics
@@ -247,22 +219,20 @@ def hyperparams_search(config_file, num_trials=50, force=False):
         val_dataset = create_tf_dataset(val_df, tokenizer, model_config["max_length"],
                                         trainer_config["batch_size"])
 
-        monitor_val = "val_binary_accuracy"
-        early_stopping_callback = keras.callbacks.EarlyStopping(
-            monitor=monitor_val, min_delta=0.001, patience=5, verbose=1, mode='max',
-            baseline=None, restore_best_weights=True)
-
-        callbacks = [early_stopping_callback, TFKerasPruningCallback(trial, monitor_val)]
+        callbacks = []
         if "callbacks" in trainer_config:
-            if "lr_scheduler" in trainer_config["callbacks"]:
-                callbacks.append(get_lr_scheduler(trainer_config["callbacks"]["lr_scheduler"]))
+            for callback in trainer_config["callbacks"]:
+                callbacks.append(get_callback_fn(callback["type"])(**callback["params"]))
+        callbacks.append(TFKerasPruningCallback(trial, "val_binary_accuracy"))
 
         model = BaseModel.from_params(model_config).build_graph_for_hp(trial)
-        lr = trial.suggest_float("lr", trainer_config["optimizer"]["learning_rate"][0],
-                                 trainer_config["optimizer"]["learning_rate"][1], log=True)
+
+        optimizer = trial.suggest_categorical("optimizer", trainer_config["optimizer"]["type"])
+        lr = trial.suggest_float("lr", trainer_config["optimizer"]["params"]["learning_rate"][0],
+                                 trainer_config["optimizer"]["params"]["learning_rate"][1], log=True)
         model.compile(
-            optimizer=get_optimizer(trainer_config["optimizer"])(learning_rate=lr),
-            loss=build_loss_fn(trainer_config),
+            optimizer=get_optimizer(optimizer)(learning_rate=lr),
+            loss=get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {})),
             metrics=[tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(),
                      tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
         model.summary()
@@ -278,6 +248,9 @@ def hyperparams_search(config_file, num_trials=50, force=False):
     study.optimize(objective, n_trials=num_trials, gc_after_trial=True,
                    catch=(tf.errors.InvalidArgumentError,))
     print("Number of finished trials: ", len(study.trials))
+
+    df = study.trials_dataframe()
+    print(df)
 
     print("Best trial:")
     trial = study.best_trial

@@ -118,7 +118,7 @@ class HyperparamsSearch(Subcommand):
             "config_path", type=str,
             help="path to the json config file")
         subparser.add_argument(
-            "-n", "--num_trials", type=int, default=100,
+            "-n", "--num_trials", type=int, default=50,
             help="num trials to run")
         subparser.add_argument(
             "-f", "--force", action="store_true",

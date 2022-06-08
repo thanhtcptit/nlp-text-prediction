@@ -15,4 +15,5 @@ matplotlib
 scikit-learn
 seaborn
 transformers
+tensorflow
 optuna

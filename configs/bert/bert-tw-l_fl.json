@@ -27,11 +27,39 @@
     },
     "trainer": {
         "num_epochs": 20,
-        "batch_size": 32,
-        "loss_fn": "focal",
+        "batch_size": 64,
+        "loss_fn": {
+            "type": "focal"
+        },
         "optimizer": {
             "type": "adam",
-            "learning_rate": 1e-5
-        }
+            "params": {
+                "learning_rate": 3e-5
+            }
+        },
+        "callbacks": [
+            {
+                "type": "early_stopping",
+                "params": {
+                    "monitor": "val_binary_accuracy",
+                    "mode": "max",
+                    "patience": 5,
+                    "min_delta": 1e-3,
+                    "restore_best_weights": true
+                }
+            },
+            {
+                "type": "model_checkpoint",
+                "params": {
+                    "monitor": "val_binary_accuracy",
+                    "mode": "max",
+                    "save_weights_only": true,
+                    "save_best_only": true
+                }
+            },
+            {
+                "type": "logging"
+            }
+        ]
     }
 }
